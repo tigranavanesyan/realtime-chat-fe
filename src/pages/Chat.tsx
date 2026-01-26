@@ -24,6 +24,11 @@ interface Message {
   fileUrl?: string;
   fileName?: string;
   createdAt: string;
+  edited?: boolean;
+  editedAt?: string;
+  replyTo?: Message | string;
+  deleted?: boolean;
+  deletedAt?: string;
 }
 
 export default function Chat() {
@@ -107,6 +112,18 @@ export default function Chat() {
       ));
     });
 
+    newSocket.on('message-edited', (message: Message) => {
+      setMessages(prev => prev.map(msg => 
+        msg._id === message._id ? message : msg
+      ));
+    });
+
+    newSocket.on('message-deleted', (message: Message) => {
+      setMessages(prev => prev.map(msg => 
+        msg._id === message._id ? message : msg
+      ));
+    });
+
     setSocket(newSocket);
 
     return () => {
@@ -169,7 +186,7 @@ export default function Chat() {
     }
   };
 
-  const sendMessage = (content: string, type: 'text' | 'file' | 'image' = 'text', fileUrl?: string, fileName?: string) => {
+  const sendMessage = (content: string, type: 'text' | 'file' | 'image' = 'text', fileUrl?: string, fileName?: string, replyTo?: string) => {
     if (!socket || !user) return;
 
     if (selectedUser) {
@@ -188,7 +205,8 @@ export default function Chat() {
         type,
         fileUrl,
         fileName,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        replyTo
       };
       setMessages(prev => [...prev, optimisticMessage]);
 
@@ -197,7 +215,8 @@ export default function Chat() {
         content,
         type,
         fileUrl,
-        fileName
+        fileName,
+        replyTo
       });
     } else if (selectedGroup) {
       // Оптимистичное обновление для групповых сообщений
@@ -215,7 +234,8 @@ export default function Chat() {
         type,
         fileUrl,
         fileName,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        replyTo
       };
       setMessages(prev => [...prev, optimisticMessage]);
 
@@ -224,8 +244,33 @@ export default function Chat() {
         content,
         type,
         fileUrl,
-        fileName
+        fileName,
+        replyTo
       });
+    }
+  };
+
+  const editMessage = async (messageId: string, newContent: string) => {
+    if (!socket) return;
+    
+    try {
+      await axios.put(`http://localhost:5000/api/chat/messages/${messageId}`, {
+        content: newContent
+      });
+      socket.emit('edit-message', { messageId, content: newContent });
+    } catch (error) {
+      console.error('Failed to edit message:', error);
+    }
+  };
+
+  const deleteMessage = async (messageId: string) => {
+    if (!socket) return;
+    
+    try {
+      await axios.delete(`http://localhost:5000/api/chat/messages/${messageId}`);
+      socket.emit('delete-message', { messageId });
+    } catch (error) {
+      console.error('Failed to delete message:', error);
     }
   };
 
@@ -258,7 +303,10 @@ export default function Chat() {
           user={selectedUser}
           messages={messages}
           onSendMessage={sendMessage}
+          onEditMessage={editMessage}
+          onDeleteMessage={deleteMessage}
           socket={socket}
+          currentUserId={(user as any)?.id || (user as any)?._id}
         />
       )}
       {selectedGroup && (
@@ -266,7 +314,10 @@ export default function Chat() {
           group={selectedGroup}
           messages={messages}
           onSendMessage={sendMessage}
+          onEditMessage={editMessage}
+          onDeleteMessage={deleteMessage}
           socket={socket}
+          currentUserId={(user as any)?.id || (user as any)?._id}
         />
       )}
       {!selectedUser && !selectedGroup && (
